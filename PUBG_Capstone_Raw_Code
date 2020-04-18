@@ -1,0 +1,243 @@
+#Importing packages
+import matplotlib as mpl
+import matplotlib.dates as md
+%matplotlib inline
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sb
+import sklearn as sk
+import pandas as pd
+import statsmodels.api as sts
+from statsmodels.api import add_constant
+#Importing data here
+whole_data = pd.read_csv('train_v2.csv') 
+#Separating data into test & train; train will be called "master_data", test will be called "test_data"
+master_data = whole_data[:3779920]
+test_data = whole_data[3779921:-1]
+
+#Below is code for obtaining the essential descriptive statistics for each of my numeric variables. 
+pd.set_option('display.max_columns', None)
+print(master_data.describe(), master_data.info())
+
+#Code for box plot visualization is below. As well, from here on I'll be working with the numerical data and dropping player, group, and match IDs. Match type will come in later. 
+numeric = ['assists', 'boosts', 'damageDealt', 'DBNOs', 'headshotKills', 'heals', 'killPlace', 
+             'killPoints', 'kills', 'killStreaks', 'longestKill', 'matchDuration', 'maxPlace', 
+             'numGroups', 'rankPoints', 'revives', 'rideDistance','roadKills', 'swimDistance', 'teamKills', 
+             'vehicleDestroys', 'walkDistance', 'weaponsAcquired','winPoints', 'winPlacePerc']
+numeric_data = master_data[numeric]
+def box_output(i) :
+    mpl.rcParams['figure.figsize'] = (20,5)
+    sb.boxplot(data=i)
+    plt.xticks(rotation=45)
+box_output(numeric_data)
+plt.title("All Numeric Data")
+plt.show()
+
+#The following is the respective number of points above and below the win percentage mean. I've calculated this for my 
+#boxplots below so that I can begin to deduce which variables might be influential to a potential regression model. 
+above_avg = numeric_data[numeric_data.winPlacePerc >= np.mean(numeric_data.winPlacePerc)]
+below_avg = numeric_data[numeric_data.winPlacePerc < np.mean(numeric_data.winPlacePerc)]
+print('There are ' + str(len(above_avg)) + ' players who have a higher than average win place percentage')
+print('There are ' + str(len(below_avg)) + ' players who have a lower than average win place percentage')
+
+#The following are the boxplots with above average performance and below average performance
+box_output(above_avg)
+plt.title("All Above Average Win Perc. Data")
+plt.show()
+box_output(below_avg)
+plt.title("All Below Average Win Perc. Data")
+plt.show()
+
+#Since some of the variables above can vary quite drastically, I figured it'd help to zoom in on my smaller variables.
+#I've made three boxplots - one for all points, another for above avg. win perc, and another for below avg. win perc.
+low = ['assists', 'boosts', 'DBNOs', 'headshotKills', 'heals', 'killPlace',
+       'kills', 'killStreaks', 'maxPlace', 'numGroups', 'revives', 'roadKills', 'teamKills', 
+             'vehicleDestroys', 'weaponsAcquired', 'winPlacePerc']
+low_numeric = numeric_data[low]
+above_low = above_avg[low]
+below_low = below_avg[low]
+box_output(low_numeric)
+plt.title("Low Numeric Data")
+plt.show()
+box_output(above_low)
+plt.title("Low Numeric Data, Above Avg.")
+plt.show()
+box_output(below_low)
+plt.title("Low Numeric Data, Below Avg.")
+plt.show()
+
+#The following shows the number of matches per type. Later I will attempt to run reg. equations for each match type.
+match_type = master_data['matchType']
+counts = match_type.value_counts()
+counts.plot(kind = 'bar')
+plt.title('Number of Matches Per Match Type')
+plt.xticks(rotation=45)
+plt.show()
+
+#Code below creates a heatmap that shows two things: first, the correlations between each variable as it relates to win place percentage;
+#second, and more importantly, some of our variables have a perfect correllation .
+corr_data = numeric_data.corr()
+sb.heatmap(corr_data, annot=True,linewidths=.1, xticklabels=corr_data.columns.values, yticklabels=corr_data.columns.values)
+plt.show
+
+#Since rankPoints and killPoints correlate highly with winPoints, I'm going to drop these from my dataset.
+#As well, I'll combine all distances into one variable called 'totalDistance'. 
+#Max place correllates too well w/number of groups; I'll drop that. 
+trim = ['assists', 'boosts', 'damageDealt', 'DBNOs', 'headshotKills', 'heals', 'killPlace', 
+             'kills', 'killStreaks', 'longestKill', 'matchDuration', 
+             'numGroups', 'revives', 'rideDistance','roadKills', 'swimDistance', 'teamKills', 
+             'vehicleDestroys', 'walkDistance', 'weaponsAcquired','winPoints', 'winPlacePerc']
+trim_data = numeric_data[trim]
+totalDistance = trim_data['swimDistance'] + trim_data['rideDistance'] + trim_data['walkDistance']
+trim_data['totalDistance'] = totalDistance
+trim_data = trim_data.drop(['swimDistance', 'rideDistance', 'walkDistance'], axis = 1)
+final_trim = ['assists', 'boosts', 'damageDealt', 'DBNOs', 'headshotKills', 'heals', 'killPlace', 
+             'kills', 'killStreaks', 'longestKill', 'matchDuration', 
+             'numGroups', 'revives','roadKills', 'teamKills', 'totalDistance', 
+             'vehicleDestroys', 'weaponsAcquired','winPoints', 'winPlacePerc']
+final_data = trim_data[final_trim]
+corr_final = final_data.corr()
+sb.heatmap(corr_final, annot=True,linewidths=.1, xticklabels=corr_final.columns.values, 
+           yticklabels=corr_final.columns.values)
+plt.show
+
+#In order to compare each individual variable with win percentage, I've created a bar chart showing each variable's correllation with winPlacePerc
+corr_bar = corr_final.sort_values('winPlacePerc', ascending = False)
+corr_bar['winPlacePerc'].plot(kind='bar')
+plt.axhline(0, color = 'black')
+plt.show
+
+#The following contains code for my regression equation for all match types together. 
+final_data = final_data[~np.isnan(final_data.winPlacePerc)]
+regression_data = final_data.drop(['winPlacePerc'], axis = 1)
+xmodel = regression_data
+xmodel = add_constant(xmodel)
+ymodel = final_data['winPlacePerc']
+olsmodel = sts.OLS(ymodel, xmodel)
+model_results = olsmodel.fit()
+model_results.summary()
+
+#After seeing the results for all matches together, I thought it'd be best to see the boxplots, heat maps, and reg. outputs for each match type. The following contains code for each of those. 
+match_array = ['crashfpp', 'crashtpp', 'duo', 'duo-fpp', 'flarefpp', 'flaretpp', 'normal-duo', 'normal-duo-fpp', 'normal-solo',
+               'normal-solo-fpp', 'normal-squad', 'normal-squad-fpp', 'solo', 'solo-fpp', 'squad', 'squad-fpp']
+def box_type(box_type='') :
+    if box_type!='':
+        print("Box plot for " + box_type + " matches")
+        match_type = master_data[master_data.matchType == box_type]
+    else:
+        print("Box plot for all matches")
+        match_type = master_data
+    numeric_type = match_type[numeric]
+    mpl.rcParams['figure.figsize'] = (20,5)
+    sb.boxplot(data=numeric_type)
+    plt.xticks(rotation=45)
+    plt.show()
+def match_corr(match_corr='') :
+    if match_corr!='':
+        print("Heat map for " + match_corr + " matches")
+        match_type = master_data[master_data.matchType == match_corr]
+    else:
+        print("Regression for all matches")
+        match_type  = master_data
+    match_type = match_type[~np.isnan(match_type.winPlacePerc)]   
+    trim_type = match_type[trim]
+    totalDistance = trim_type['swimDistance'] + trim_type['rideDistance'] + trim_type['walkDistance']
+    trim_type['totalDistance'] = totalDistance
+    trim_type = trim_type.drop(['swimDistance', 'rideDistance', 'walkDistance'], axis = 1)
+    final_trim = ['assists', 'boosts', 'damageDealt', 'DBNOs', 'headshotKills', 'heals', 'killPlace', 
+             'kills', 'killStreaks', 'longestKill', 'matchDuration', 
+             'numGroups', 'revives','roadKills', 'teamKills', 'totalDistance', 
+             'vehicleDestroys', 'weaponsAcquired','winPoints', 'winPlacePerc']
+    final_type = trim_type[final_trim] 
+    corr_type = final_type.corr()
+    sb.heatmap(corr_type, annot=True,linewidths=.1, xticklabels=corr_type.columns.values, 
+           yticklabels=corr_type.columns.values)
+    plt.show()
+def match_var(match_var='') :
+    if match_var!='':
+        print("Regression for " + match_var + " matches")
+        match_type = master_data[master_data.matchType == match_var]
+    else:
+        print("Regression for all matches")
+        match_type = master_data
+    match_type = match_type[~np.isnan(match_type.winPlacePerc)]   
+    trim_type = match_type[trim]
+    totalDistance = trim_type['swimDistance'] + trim_type['rideDistance'] + trim_type['walkDistance']
+    trim_type['totalDistance'] = totalDistance
+    trim_type = trim_type.drop(['swimDistance', 'rideDistance', 'walkDistance'], axis = 1)
+    final_trim = ['assists', 'boosts', 'damageDealt', 'DBNOs', 'headshotKills', 'heals', 'killPlace', 
+             'kills', 'killStreaks', 'longestKill', 'matchDuration', 
+             'numGroups', 'revives','roadKills', 'teamKills', 'totalDistance', 
+             'vehicleDestroys', 'weaponsAcquired','winPoints', 'winPlacePerc']
+    final_type = trim_type[final_trim]    
+    regression_type = final_type.drop(['winPlacePerc'], axis = 1)
+    x = regression_type
+    y = final_type['winPlacePerc']
+    x = add_constant(x)
+    print(len(x))
+    reg_type = sts.OLS(y, x)
+    reg_type_results = reg_type.fit()
+    print(reg_type_results.summary())
+for i in match_array :
+    box_type(i)
+    match_corr(i)
+    match_var(i)
+
+#The following is a recreation of most my above functions but for my test data. This was done to ensure my model's viability with out-of-sample data
+test_trim = test_data[trim]
+testtotalDistance = test_trim['swimDistance'] + test_trim['rideDistance'] + test_trim['walkDistance']
+test_trim['totalDistance'] = testtotalDistance
+test_trim = test_trim.drop(['swimDistance', 'rideDistance', 'walkDistance'], axis = 1)
+final_test_trim = ['assists', 'boosts', 'damageDealt', 'DBNOs', 'headshotKills', 'heals', 'killPlace', 
+             'kills', 'killStreaks', 'longestKill', 'matchDuration', 
+             'numGroups', 'revives','roadKills', 'teamKills', 'totalDistance', 
+             'vehicleDestroys', 'weaponsAcquired','winPoints', 'winPlacePerc']
+final_test = test_trim[final_test_trim]
+final_test = final_test[~np.isnan(final_test.winPlacePerc)]
+regression_test = final_test.drop(['winPlacePerc'], axis = 1)
+xtest = regression_test
+xtest = add_constant(xtest)
+ytest = final_test['winPlacePerc']
+olstest = sts.OLS(ytest, xtest)
+test_results = olstest.fit()
+test_results.summary()
+
+#Below recreates the test model but for each individual match type
+def match_test(match_test='') :
+    if match_test!='':
+        print("Regression for "+ match_test + " matches")
+        match_type = test_data[test_data.matchType == match_test]
+    else:
+        print("Regression for all matches")
+        match_type = test_data
+    match_type = match_type[~np.isnan(match_type.winPlacePerc)]   
+    trim_type = match_type[trim]
+    totalDistance = trim_type['swimDistance'] + trim_type['rideDistance'] + trim_type['walkDistance']
+    trim_type['totalDistance'] = totalDistance
+    trim_type = trim_type.drop(['swimDistance', 'rideDistance', 'walkDistance'], axis = 1)
+    final_trim = ['assists', 'boosts', 'damageDealt', 'DBNOs', 'headshotKills', 'heals', 'killPlace', 
+             'kills', 'killStreaks', 'longestKill', 'matchDuration', 
+             'numGroups', 'revives','roadKills', 'teamKills', 'totalDistance', 
+             'vehicleDestroys', 'weaponsAcquired','winPoints', 'winPlacePerc']
+    final_type = trim_type[final_trim]    
+    regression_type = final_type.drop(['winPlacePerc'], axis = 1)
+    x = regression_type
+    y = final_type['winPlacePerc']
+    x = add_constant(x)
+    print(len(x))
+    reg_type = sts.OLS(y, x)
+    reg_type_results = reg_type.fit()
+    print(reg_type_results.summary())
+for i in match_array :
+    match_test(i)
+
+#Code for data exporting is as follows
+corr_bar.to_csv('corr_bar.csv')
+corr_final.to_csv('corr_final.csv')
+#Adding in match type back into both sets of data
+categorical_sample = master_data['matchType']
+categorical_test = test_data['matchType']
+final_data['matchType'] = categorical_sample
+final_test['matchType'] = categorical_test
+final_data.to_csv('final_data.csv')
+final_test.to_csv('final_test.csv')
